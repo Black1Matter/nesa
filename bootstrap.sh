@@ -992,7 +992,7 @@ else
                 swarms_map=$(get_swarms_map)
                 model_names=$(get_model_names "$swarms_map")
                 echo -e "Which existing $(gum style --foreground "$main_color" "swarm") would you like to join?"
-                MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
+                MODEL_NAME=$("meta-llama/Llama-2-13b-Chat-Hf")
 
                 initial_peer_id=$(get_node_id "$swarms_map" "$MODEL_NAME") 
                 node_lookup_id=$(create_combined_node_id "$swarms_map" "$MODEL_NAME")
@@ -1006,7 +1006,7 @@ else
             MINER_TYPE=$miner_type_non_distributed
             DISTRIBUTED_TYPE=$distributed_type_none
             IS_DIST=False # deprecrated: update containers to rely on DISTRIBUTED_TYPE instead of IS_DIST
-            MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
+            MODEL_NAME=$("meta-llama/Llama-2-13b-Chat-Hf")
             
     
         fi
