@@ -984,7 +984,7 @@ else
 
             if grep -q "$selected_distributed_type" <<<"$new_swarm"; then
                 DISTRIBUTED_TYPE=$distributed_type_new_swarm
-                MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
+                MODEL_NAME=$("meta-llama/Llama-2-13b-Chat-Hf")
 
 
             else 
@@ -1008,11 +1008,11 @@ else
             IS_DIST=False # deprecrated: update containers to rely on DISTRIBUTED_TYPE instead of IS_DIST
             MODEL_NAME=$("meta-llama/Llama-2-13b-Chat-Hf")
             
-    
+
         fi
         clear
         update_header
-    
+        MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
         HUGGINGFACE_API_KEY="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"
     
 else
