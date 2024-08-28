@@ -1013,7 +1013,7 @@ else
         clear
         update_header
         
-        # HUGGINGFACE_API_KEY="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"
+        HUGGINGFACE_API_KEY="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"
     
 else
     MINER_TYPE=$miner_type_none
@@ -1038,10 +1038,10 @@ if [[ "$IS_VALIDATOR" == "yes" ]]; then
     exit 0
 fi
 
-if ! gum confirm "Do you want to start the node with the above configuration? "; then
-    echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
-    exit 0
-fi
+# if ! gum confirm "Do you want to start the node with the above configuration? "; then
+#     echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
+#     exit 0
+# fi
 
 cd "$WORKING_DIRECTORY/docker" || {
     echo -e "Error changing to working directory: $WORKING_DIRECTORY/docker"
