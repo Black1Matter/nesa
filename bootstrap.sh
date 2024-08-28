@@ -1012,8 +1012,8 @@ else
         fi
         clear
         update_header
-        MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
-        HUGGINGFACE_API_KEY="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"
+        
+        # HUGGINGFACE_API_KEY="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"
     
 else
     MINER_TYPE=$miner_type_none
@@ -1022,7 +1022,8 @@ else
 fi
 
 fi
-
+MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
+UGGINGFACE_API_KEY="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"
 
 save_to_env_file
 
