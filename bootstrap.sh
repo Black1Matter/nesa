@@ -992,7 +992,7 @@ else
                 swarms_map=$(get_swarms_map)
                 model_names=$(get_model_names "$swarms_map")
                 echo -e "Which existing $(gum style --foreground "$main_color" "swarm") would you like to join?"
-                MODEL_NAME=$(echo "$model_names" | gum choose)
+                MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
 
                 initial_peer_id=$(get_node_id "$swarms_map" "$MODEL_NAME") 
                 node_lookup_id=$(create_combined_node_id "$swarms_map" "$MODEL_NAME")
@@ -1006,14 +1006,7 @@ else
             MINER_TYPE=$miner_type_non_distributed
             DISTRIBUTED_TYPE=$distributed_type_none
             IS_DIST=False # deprecrated: update containers to rely on DISTRIBUTED_TYPE instead of IS_DIST
-            MODEL_NAME=$(
-                gum input --cursor.foreground "${main_color}" \
-                    --prompt.foreground "${main_color}" \
-                    --prompt "Which model would you like to run? " \
-                    --placeholder "nlptown/bert-base-multilingual-uncased-sentiment" \
-                    --width 120 \
-                    --value "$MODEL_NAME"
-            )
+            MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
             
     
         fi
@@ -1044,10 +1037,10 @@ if [[ "$IS_VALIDATOR" == "yes" ]]; then
     exit 0
 fi
 
-# if ! gum confirm "Do you want to start the node with the above configuration? "; then
-#     echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
-#     exit 0
-# fi
+if ! gum confirm "Do you want to start the node with the above configuration? "; then
+    echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
+    exit 0
+fi
 
 cd "$WORKING_DIRECTORY/docker" || {
     echo -e "Error changing to working directory: $WORKING_DIRECTORY/docker"
