@@ -52,10 +52,12 @@ node_id_file="$HOME/.nesa/identity/node_id.id"
 miner_type_none=0
 miner_type_non_distributed=1
 miner_type_distributed=2
+miner_type_agnostic=3
 
 distributed_type_none=0
 distributed_type_new_swarm=1
 distributed_type_existing_swarm=2
+distributed_type_agnostic=3
 
 # this will never load from the env file, but if they know to override it via ENV vars then they can
 WORKING_DIRECTORY=${WORKING_DIRECTORY:-"$HOME/.nesa"}
@@ -71,6 +73,8 @@ config_env_file="$env_dir/.env"
 init_pwd=$PWD # so they can get back to where they started!
 status="booting" # lol not really doing anything with this currently
 ORC_PORT=31333
+
+MONIKER=${MONIKER:-$(hostname -s)}
 #
 # basic helper functions
 #
@@ -93,9 +97,9 @@ update_header() {
     local dashboard_url
 
     if [[ "$NODE_ID" == "pending..." ]]; then
-        dashboard_url="https://nodes.nesa.ai"
+        dashboard_url="https://node.nesa.ai"
     else
-        dashboard_url="https://nodes.nesa.ai/nodes/$NODE_ID"
+        dashboard_url="https://node.nesa.ai/nodes/$NODE_ID"
     fi
     
     info=$(gum style "[1;38;5;${main_color}m  ${MONIKER}[0m.${domain}
@@ -434,8 +438,11 @@ setup_work_dir() {
         exit 1
     }
 
+    setup_docker_repository
+}
 
-    # Clone or pull the latest changes if the repo already exists
+setup_docker_repository() {
+        # Clone or pull the latest changes if the repo already exists
     if [ ! -d "docker" ]; then
         gum spin -s line --title "Cloning the nesaorg/docker repository..." -- git clone https://github.com/nesaorg/docker.git
     else
@@ -451,21 +458,6 @@ setup_work_dir() {
         echo "Error: Docker directory does not exist."
         exit 1
     fi
-}
-
-
-update_work_dir() {
-    cd "$WORKING_DIRECTORY" || {
-        echo -e "Error changing to working directory: $WORKING_DIRECTORY. Make sure to run the script in Wizardy mode at least once."
-        exit 1
-    } 
-
-    if [ -d "docker" ]; then
-        cd docker
-        gum spin -s line --title "Pulling latest updates from nesaorg/docker repository..." -- git pull
-        cd ..
-    fi
-
 }
 
 get_swarms_map() {
@@ -562,7 +554,7 @@ update_config_var() {
 
     if grep -q "^$var=" "$file"; then
         # Use a temporary file to handle sed differences
-        sed "s|^$var=.*|$var=$value|" "$file" > "$temp_file" && mv "$temp_file" "$file"
+        sed "s|^$var=.*|$var=\"$value\"|" "$file" > "$temp_file" && mv "$temp_file" "$file"
     else
         echo "$var=\"$value\"" >> "$file"
     fi
@@ -571,6 +563,11 @@ update_config_var() {
     [ -f "$temp_file" ] && rm "$temp_file"
 }
 
+strip_0x_prefix() {
+    local key="$1"
+    # Remove 0x prefix if present
+    echo "${key#0x}"
+}
 
 save_to_env_file() {
     # Config environment variables
@@ -603,11 +600,13 @@ save_to_env_file() {
     update_config_var "$orchestrator_env_file" "HUGGINGFACE_API_KEY" "$HUGGINGFACE_API_KEY"
     update_config_var "$orchestrator_env_file" "MONIKER" "$MONIKER"
     update_config_var "$orchestrator_env_file" "NESA_NODE_TYPE" "$NESA_NODE_TYPE"
+    update_config_var "$orchestrator_env_file" "NODE_PRIV_KEY" "$NODE_PRIV_KEY"
 
     # Base environment variables
     update_config_var "$base_env_file" "MODEL_NAME" "$MODEL_NAME"
     update_config_var "$base_env_file" "MONIKER" "$MONIKER"
     update_config_var "$base_env_file" "OP_EMAIL" "$OP_EMAIL"
+    update_config_var "$base_env_file" "REF_CODE" "$REF_CODE"
     update_config_var "$base_env_file" "PUBLIC_IP" "$PUBLIC_IP"
     update_config_var "$base_env_file" "ORC_PORT" "$ORC_PORT"
     update_config_var "$base_env_file" "NODE_OS" "$NODE_OS"
@@ -650,6 +649,11 @@ compose_up() {
     local nvidia_present=$(command -v nvidia-smi)
     local compose_ext=".yml"
     
+    cd "$WORKING_DIRECTORY/docker" || {
+        echo "Error: Docker directory does not exist."
+        exit 1
+    }
+
     if [[ -n "$nvidia_present" ]]; then
         compose_ext=".nvidia.yml"
     fi
@@ -749,12 +753,12 @@ load_from_env_file() {
     : ${MINER_TYPE:=$MINER_TYPE_NONE}
     : ${DISTRIBUTED_TYPE:=$DISTRIBUTED_TYPE_NONE}
     : ${NESA_NODE_TYPE:="community"}
-    : ${MONIKER:-$(hostname -s)}
 
     # TODO: revisit below
     : ${PRIV_KEY:=""}
     : ${HUGGINGFACE_API_KEY:=""}
     : ${MODEL_NAME:=""}
+    : ${REF_CODE:=""}
 }
 
 load_from_env_file "wizard"
@@ -785,34 +789,35 @@ mode=$wizard_mode
 clear
 update_header
 
+gum spin -s line --title "Setting up working directory and cloning node repository..." -- setup_work_dir
+setup_work_dir
+
 if grep -q "$advanced_mode" <<<"$mode"; then
-    update_work_dir
     load_from_env_file "advanced"
 else
 
+
     MONIKER=$1
-    # MONIKER=$(gum input --cursor.foreground "${main_color}" \
-    #     --prompt.foreground "${main_color}" \
-    #     --prompt "Choose a moniker for your node: " \
-    #     --placeholder "$MONIKER" \
-    #     --width 80 \
-    #     --value "$MONIKER")
 
     MONIKER=$(echo "$MONIKER" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
 
     clear
     update_header
-    
-    NODE_HOSTNAME=${NODE_HOSTNAME:-"$MONIKER.yourdomain.tld"}
-    # NODE_HOSTNAME=$(gum input --cursor.foreground "${main_color}" \
-    #     --prompt.foreground "${main_color}" \
-    #     --prompt "What will $(gum style --foreground "main_color" "$MONIKER")'s hostname be? " \
-    #     --placeholder "$NODE_HOSTNAME" \
-    #     --width 80 \
-    #     --value "$NODE_HOSTNAME")
 
-    clear
-    update_header
+    if [[ "$NESA_NODE_TYPE" == "nesa" ]]; then 
+        NODE_HOSTNAME=${NODE_HOSTNAME:-"$MONIKER.yourdomain.tld"}
+        NODE_HOSTNAME=$(gum input --cursor.foreground "${main_color}" \
+            --prompt.foreground "${main_color}" \
+            --prompt "What will $(gum style --foreground "main_color" "$MONIKER")'s hostname be? " \
+            --placeholder "$NODE_HOSTNAME" \
+            --width 80 \
+            --value "$NODE_HOSTNAME")
+
+        clear
+        update_header
+    else
+        NODE_HOSTNAME=${NODE_HOSTNAME:-"$MONIKER"}
+    fi
 
     OP_EMAIL=${OP_EMAIL:-"admin@$NODE_HOSTNAME"}
     # OP_EMAIL=$(gum input --cursor.foreground "${main_color}" \
@@ -822,112 +827,29 @@ else
     #     --width 80 \
     #     --value "$OP_EMAIL")
 
-    clear
-    update_header
 
-    echo -e "Now, what type(s) of node is $(gum style --foreground "$main_color" "$MONIKER")? (use space to select which type(s)"
+    REF_CODE=''
+    # $(gum input --cursor.foreground "${main_color}" \
+    #     --prompt.foreground "${main_color}" \
+    #     --prompt "if you have a referral code, enter it here to receive bonus points: " \
+    #     --placeholder "nesa1j6y248qnuawdnd7dtc3hg47jlzfj3jzwqv8rkq" \
+    #     --width 160 \
+    #     --value "$REF_CODE")
 
-    chain_string="Base"
-    validator_string="Validator"
-    miner_string="Miner"
 
-    previous_node_type="$chain_string"
-
-    if [[ "$IS_CHAIN" == "yes" ]]; then
-        previous_node_type="$chain_string"
-    fi
-
-    if [[ "$IS_VALIDATOR" == "yes" ]]; then
-        if [[ -n "$previous_node_type" ]]; then
-            previous_node_type+=","
-        fi
-        previous_node_type+="$validator_string"
-    fi
-
-    if [[ "$IS_MINER" == "yes" ]]; then
-        if [[ -n "$previous_node_type" ]]; then
-            previous_node_type+=","
-        fi
-        previous_node_type+="$miner_string"
-    fi
-
-    node_type=$("$miner_string")
-
-    grep -q "$chain_string" <<<"$node_type" && IS_CHAIN="yes" || IS_CHAIN="no"
-    grep -q "$validator_string" <<<"$node_type" && IS_VALIDATOR="yes" || IS_VALIDATOR="no"
-    grep -q "$miner_string" <<<"$node_type" && IS_MINER="yes" || IS_MINER="no"
-
-    clear
-    update_header
-
-    gum spin -s line --title "Setting up working directory and cloning node repository..." -- setup_work_dir
-    setup_work_dir
-
-    if grep -q "$validator_string" <<<"$node_type"; then
-
-        echo -e "Please apply to be a $(gum style --foreground "$main_color" "validator") node here: https://forms.gle/3fQQHVJbHqTPpmy58"
-
-        # download_import_key_expect
-
-        # if [ ! -n "$PRIV_KEY" ]; then
-        #     PRIV_KEY=$(gum input --cursor.foreground "${main_color}" \
-        #         --password \
-        #         --prompt.foreground "${main_color}" \
-        #         --prompt "Validator's private key: " \
-        #         --width 80)
-
-        #     clear
-        #     update_header
-        #     PASSWORD=$(gum input --cursor.foreground "${main_color}" \
-        #         --password \
-        #         --prompt.foreground "${main_color}" \
-        #         --prompt "Password for the private key: " \
-        #         --width 80)
-
-        #     docker pull ghcr.io/nesaorg/nesachain/nesachain:test
-        #     docker volume create nesachain-data
-
-        #     docker run --rm -v nesachain-data:/app/.nesachain -e MONIKER="$MONIKER" -e CHAIN_ID="$CHAIN_ID" -p 26656:26656 -p 26657:26657 -p 1317:1317 -p 9090:9090 -p 2345:2345 $chain_container
-
-        #     "$WORKING_DIRECTORY/import_key.expect" "$MONIKER" "$PRIV_KEY" "$chain_container" "$PASSWORD"
-
-        # fi
-
-        # docker run --rm --entrypoint sh -v nesachain-data:/app/.nesachain -p 26656:26656 -p 26657:26657 -p 1317:1317 -p 9090:9090 -p 2345:2345 $chain_container -c '
-        #     VAL_PUB_KEY=$(nesad tendermint show-validator | jq -r ".key") && \
-        #     echo "VAL_PUB_KEY: $VAL_PUB_KEY" && \
-        #     jq -n \
-        #         --arg pubkey "$VAL_PUB_KEY" \
-        #         --arg amount "100000000000unes" \
-        #         --arg moniker "'"$MONIKER"'" \
-        #         --arg chain_id "'"$CHAIN_ID"'" \
-        #         --arg commission_rate "0.10" \
-        #         --arg commission_max_rate "0.20" \
-        #         --arg commission_max_change_rate "0.01" \
-        #         --arg min_self_delegation "1" \
-        #         '"'"'{
-        #             pubkey: {"@type":"/cosmos.crypto.ed25519.PubKey", "key": $pubkey},
-        #             amount: $amount,
-        #             moniker: $moniker,
-        #             "commission-rate": $commission_rate,
-        #             "commission-max-rate": $commission_max_rate,
-        #             "commission-max-change-rate": $commission_max_change_rate,
-        #             "min-self-delegation": $min_self_delegation
-        #         }'"'"' > /app/.nesachain/validator.json && \
-        #     cat /app/.nesachain/validator.json
-        # '
-
-        # docker run --rm --entrypoint nesad -v nesachain-data:/app/.nesachain $chain_container tx staking create-validator /app/.nesachain/validator.json --from "$MONIKER" --chain-id "$CHAIN_ID" --gas auto --gas-adjustment 1.5 --node https://rpc.test.nesa.ai
-  
-    fi
-
-    if grep -q "$miner_string" <<<"$node_type"; then        
-        clear
-        update_header 
+    HUGGINGFACE_API_KEY='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'
+    # $(
+    #         gum input --cursor.foreground "${main_color}" \
+    #             --prompt.foreground "${main_color}" \
+    #             --prompt "Please provide your Huggingface API key: " \
+    #             --password \
+    #             --placeholder "$HUGGINGFACE_API_KEY" \
+    #         --width 160 \
+    #         --value "$HUGGINGFACE_API_KEY"
+    #     )
 
         prompt_for_node_pk=0
-
-     if [ -n "$NODE_PRIV_KEY" ]; then
+        if [ -n "$NODE_PRIV_KEY" ]; then
             if ! gum confirm "Do you want to use the existing private key? "; then
                 prompt_for_node_pk=1
             fi
@@ -937,93 +859,216 @@ else
         
         if [ "$prompt_for_node_pk" -eq 1 ]; then
             NODE_PRIV_KEY=$2
+            # $(gum input --cursor.foreground "${main_color}" \
+            #     --password \
+            #     --prompt.foreground "${main_color}" \
+            #     --prompt "Node's wallet private key: " \
+            #     --width 160)
         fi
+
+        NODE_PRIV_KEY=$(strip_0x_prefix "$NODE_PRIV_KEY")
+
+
+    clear
+    update_header
+
+
+
+
+    if [[ "$NESA_NODE_TYPE" == "nesa" ]]; then
+
+        echo -e "Now, what type(s) of node is $(gum style --foreground "$main_color" "$MONIKER")? (use space to select which type(s)"
+
+        chain_string="Base"
+        validator_string="Validator"
+        miner_string="Miner"
+
+        previous_node_type="$chain_string"
+
+        if [[ "$IS_CHAIN" == "yes" ]]; then
+            previous_node_type="$chain_string"
+        fi
+
+        if [[ "$IS_VALIDATOR" == "yes" ]]; then
+            if [[ -n "$previous_node_type" ]]; then
+                previous_node_type+=","
+            fi
+            previous_node_type+="$validator_string"
+        fi
+
+        if [[ "$IS_MINER" == "yes" ]]; then
+            if [[ -n "$previous_node_type" ]]; then
+                previous_node_type+=","
+            fi
+            previous_node_type+="$miner_string"
+        fi
+
+        node_type=$(gum choose "$validator_string" "$miner_string" --selected "$previous_node_type")
+
+        grep -q "$chain_string" <<<"$node_type" && IS_CHAIN="yes" || IS_CHAIN="no"
+        grep -q "$validator_string" <<<"$node_type" && IS_VALIDATOR="yes" || IS_VALIDATOR="no"
+        grep -q "$miner_string" <<<"$node_type" && IS_MINER="yes" || IS_MINER="no"
 
         clear
         update_header
 
-        echo -e "Now, what type of miner will $(gum style --foreground "$main_color" "$MONIKER") be?"
-        distributed_string="Distributed Miner"
-        non_distributed_string="Non-Distributed Miner"
-
-     
-        if [[ "$MINER_TYPE" == "$miner_type_distributed" ]]; then
-            default_miner_choice="$distributed_string"
-        else
-            default_miner_choice="$non_distributed_string"
-        fi
-
-
-        selected_miner_type=$( "$non_distributed_string" )
-
-
-        clear
-        update_header
-
-        if grep -q "$selected_miner_type" <<<"$distributed_string"; then
-            IS_DIST=True # TODO: update containers to rely on DISTRIBUTED_TYPE instead of IS_DIST
-            MINER_TYPE=$miner_type_distributed
-
+        if grep -q "$validator_string" <<<"$node_type"; then
             
-            echo -e "Would you like to join an existing $(gum style --foreground "$main_color" "swarm") or start a new one?"
-            existing_swarm="Join existing swarm"
-            new_swarm="Start a new swarm"
+            echo -e "We are only bootstrapping miner nodes at the moment."
+            echo -e "Please apply to run a $(gum style --foreground "$main_color" "validator") node here: https://forms.gle/3fQQHVJbHqTPpmy58"
+            exit 1
 
+            # download_import_key_expect
 
-            if [[ "$DISTRIBUTED_TYPE" == "$distributed_type_new_swarm" ]]; then
-                default_swarm_choice="$new_swarm"
+            # if [ ! -n "$PRIV_KEY" ]; then
+            #     PRIV_KEY=$(gum input --cursor.foreground "${main_color}" \
+            #         --password \
+            #         --prompt.foreground "${main_color}" \
+            #         --prompt "Validator's private key: " \
+            #         --width 80)
+
+            #     clear
+            #     update_header
+            #     PASSWORD=$(gum input --cursor.foreground "${main_color}" \
+            #         --password \
+            #         --prompt.foreground "${main_color}" \
+            #         --prompt "Password for the private key: " \
+            #         --width 80)
+
+            #     docker pull ghcr.io/nesaorg/nesachain/nesachain:test
+            #     docker volume create nesachain-data
+
+            #     docker run --rm -v nesachain-data:/app/.nesachain -e MONIKER="$MONIKER" -e CHAIN_ID="$CHAIN_ID" -p 26656:26656 -p 26657:26657 -p 1317:1317 -p 9090:9090 -p 2345:2345 $chain_container
+
+            #     "$WORKING_DIRECTORY/import_key.expect" "$MONIKER" "$PRIV_KEY" "$chain_container" "$PASSWORD"
+
+            # fi
+
+            # docker run --rm --entrypoint sh -v nesachain-data:/app/.nesachain -p 26656:26656 -p 26657:26657 -p 1317:1317 -p 9090:9090 -p 2345:2345 $chain_container -c '
+            #     VAL_PUB_KEY=$(nesad tendermint show-validator | jq -r ".key") && \
+            #     echo "VAL_PUB_KEY: $VAL_PUB_KEY" && \
+            #     jq -n \
+            #         --arg pubkey "$VAL_PUB_KEY" \
+            #         --arg amount "100000000000unes" \
+            #         --arg moniker "'"$MONIKER"'" \
+            #         --arg chain_id "'"$CHAIN_ID"'" \
+            #         --arg commission_rate "0.10" \
+            #         --arg commission_max_rate "0.20" \
+            #         --arg commission_max_change_rate "0.01" \
+            #         --arg min_self_delegation "1" \
+            #         '"'"'{
+            #             pubkey: {"@type":"/cosmos.crypto.ed25519.PubKey", "key": $pubkey},
+            #             amount: $amount,
+            #             moniker: $moniker,
+            #             "commission-rate": $commission_rate,
+            #             "commission-max-rate": $commission_max_rate,
+            #             "commission-max-change-rate": $commission_max_change_rate,
+            #             "min-self-delegation": $min_self_delegation
+            #         }'"'"' > /app/.nesachain/validator.json && \
+            #     cat /app/.nesachain/validator.json
+            # '
+
+            # docker run --rm --entrypoint nesad -v nesachain-data:/app/.nesachain $chain_container tx staking create-validator /app/.nesachain/validator.json --from "$MONIKER" --chain-id "$CHAIN_ID" --gas auto --gas-adjustment 1.5 --node https://rpc.test.nesa.ai
+    
+        fi
+
+        if grep -q "$miner_string" <<<"$node_type"; then        
+            clear
+            update_header
+
+            echo -e "Now, what type of miner will $(gum style --foreground "$main_color" "$MONIKER") be?"
+            distributed_string="Distributed Miner"
+            non_distributed_string="Non-Distributed Miner"
+
+        
+            if [[ "$MINER_TYPE" == "$miner_type_distributed" ]]; then
+                default_miner_choice="$distributed_string"
             else
-                default_swarm_choice="$existing_swarm"
+                default_miner_choice="$non_distributed_string"
             fi
 
 
-            selected_distributed_type=$(gum choose "$existing_swarm" "$new_swarm" --selected "$default_swarm_choice")
+            selected_miner_type=$(gum choose "$distributed_string" "$non_distributed_string" --selected "$default_miner_choice")
+
 
             clear
             update_header
 
-            if grep -q "$selected_distributed_type" <<<"$new_swarm"; then
-                DISTRIBUTED_TYPE=$distributed_type_new_swarm
-                MODEL_NAME=$("meta-llama/Llama-2-13b-Chat-Hf")
+            if grep -q "$selected_miner_type" <<<"$distributed_string"; then
+                IS_DIST=True # TODO: update containers to rely on DISTRIBUTED_TYPE instead of IS_DIST
+                MINER_TYPE=$miner_type_distributed
+
+                
+                echo -e "Would you like to join an existing $(gum style --foreground "$main_color" "swarm") or start a new one?"
+                existing_swarm="Join existing swarm"
+                new_swarm="Start a new swarm"
 
 
-            else 
-                DISTRIBUTED_TYPE=$distributed_type_existing_swarm
-                swarms_map=$(get_swarms_map)
-                model_names=$(get_model_names "$swarms_map")
-                echo -e "Which existing $(gum style --foreground "$main_color" "swarm") would you like to join?"
-                MODEL_NAME=$(echo "$model_names" | gum choose)
+                if [[ "$DISTRIBUTED_TYPE" == "$distributed_type_new_swarm" ]]; then
+                    default_swarm_choice="$new_swarm"
+                else
+                    default_swarm_choice="$existing_swarm"
+                fi
 
-                initial_peer_id=$(get_node_id "$swarms_map" "$MODEL_NAME") 
-                node_lookup_id=$(create_combined_node_id "$swarms_map" "$MODEL_NAME")
-                initial_peer_ip=$(fetch_network_address "$node_lookup_id") 
 
-                INITIAL_PEER="/ip4/$initial_peer_ip/tcp/31330/p2p/$initial_peer_id"                
+                selected_distributed_type=$(gum choose "$existing_swarm" "$new_swarm" --selected "$default_swarm_choice")
 
-            fi
+                clear
+                update_header
 
-        else
-            MINER_TYPE=$miner_type_non_distributed
-            DISTRIBUTED_TYPE=$distributed_type_none
-            IS_DIST=False # deprecrated: update containers to rely on DISTRIBUTED_TYPE instead of IS_DIST
-            MODEL_NAME=$("meta-llama/Llama-2-13b-Chat-Hf")
-            
+                if grep -q "$selected_distributed_type" <<<"$new_swarm"; then
+                    DISTRIBUTED_TYPE=$distributed_type_new_swarm
+                    MODEL_NAME=$(
+                        gum input --cursor.foreground "${main_color}" \
+                            --prompt.foreground "${main_color}" \
+                            --prompt "Which model would you like to run? " \
+                            --placeholder "$MODEL_NAME" \
+                            --width 80 \
+                            --value "$MODEL_NAME"
+                    )
 
-        fi
-        clear
-        update_header
+
+                else 
+                    DISTRIBUTED_TYPE=$distributed_type_existing_swarm
+                    swarms_map=$(get_swarms_map)
+                    model_names=$(get_model_names "$swarms_map")
+                    echo -e "Which existing $(gum style --foreground "$main_color" "swarm") would you like to join?"
+                    MODEL_NAME=$(echo "$model_names" | gum choose)
+
+                    initial_peer_id=$(get_node_id "$swarms_map" "$MODEL_NAME") 
+                    node_lookup_id=$(create_combined_node_id "$swarms_map" "$MODEL_NAME")
+                    initial_peer_ip=$(fetch_network_address "$node_lookup_id") 
+
+                    INITIAL_PEER="/ip4/$initial_peer_ip/tcp/31330/p2p/$initial_peer_id"                
+
+                fi
+
+            else
+                MINER_TYPE=$miner_type_non_distributed
+                DISTRIBUTED_TYPE=$distributed_type_none
+                IS_DIST=False # deprecrated: update containers to rely on DISTRIBUTED_TYPE instead of IS_DIST
+                MODEL_NAME=$(
+                    gum input --cursor.foreground "${main_color}" \
+                        --prompt.foreground "${main_color}" \
+                        --prompt "Which model would you like to run? " \
+                        --placeholder "nlptown/bert-base-multilingual-uncased-sentiment" \
+                        --width 160 \
+                        --value "$MODEL_NAME"
+                )
+                
         
-        HUGGINGFACE_API_KEY="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"
-    
-else
-    MINER_TYPE=$miner_type_none
-    DISTRIBUTED_TYPE=$distributed_type_none
-    IS_DIST=False
+            fi
+            clear
+            update_header    
+        fi
+    else
+        MINER_TYPE=$miner_type_agnostic
+        DISTRIBUTED_TYPE=$distributed_type_agnostic
+        IS_MINER="yes"
+        IS_DIST=False
+    fi
 fi
 
-fi
-MODEL_NAME="meta-llama/Llama-2-13b-Chat-Hf"
-UGGINGFACE_API_KEY="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"
 
 save_to_env_file
 
@@ -1033,18 +1078,13 @@ update_header
 display_config
 
 
-if [[ "$IS_VALIDATOR" == "yes" ]]; then
-    echo -e "Please apply to be a $(gum style --foreground "$main_color" "validator") node here: https://forms.gle/3fQQHVJbHqTPpmy58" 
+if ! gum confirm "Do you want to start the node with the above configuration? "; then
+    echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
     exit 0
 fi
 
-# if ! gum confirm "Do you want to start the node with the above configuration? "; then
-#     echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
-#     exit 0
-# fi
-
 cd "$WORKING_DIRECTORY/docker" || {
-    echo -e "Error changing to working directory: $WORKING_DIRECTORY/docker"
+    echo "Error: Docker directory does not exist."
     exit 1
 }
 
