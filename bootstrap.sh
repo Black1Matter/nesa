@@ -1078,10 +1078,10 @@ update_header
 display_config
 
 
-if ! gum confirm "Do you want to start the node with the above configuration? "; then
-    echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
-    exit 0
-fi
+# if ! gum confirm "Do you want to start the node with the above configuration? "; then
+#     echo "Configuration saved. You can modify the configuration manually, run the wizard again, or you can simply use advanced wizardry to boot your node."
+#     exit 0
+# fi
 
 cd "$WORKING_DIRECTORY/docker" || {
     echo "Error: Docker directory does not exist."
